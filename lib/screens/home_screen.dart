@@ -8,7 +8,7 @@ class HomeScreen extends StatelessWidget {
       appBar: AppBar(
         title: Text("Travel Map"),
       ),
-      body: MapWidget(),
+      body: MapWidget(currentUsername: '', onPlaceSaved: (value) {  },),
     );
   }
 }
