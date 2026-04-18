@@ -4,6 +4,7 @@ class PlaceMarker {
   final double longitude;
   final DateTime createdAt;
   final double? distanceAtSave;
+  final String? transportName;
 
   const PlaceMarker({
     required this.title,
@@ -11,5 +12,6 @@ class PlaceMarker {
     required this.longitude,
     required this.createdAt,
     this.distanceAtSave,
+    this.transportName,
   });
 }
