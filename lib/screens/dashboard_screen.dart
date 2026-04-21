@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+
 import '../models/app_user.dart';
 import '../models/place_marker.dart';
+import '../services/auth_service.dart';
 import 'login_screen.dart';
 import 'map_tab_screen.dart';
 import 'profile_screen.dart';
@@ -35,11 +37,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _logout() {
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-          (route) => false,
-    );
+    AuthService.logout().whenComplete(() {
+      if (!mounted) return;
+
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
+    });
   }
 
   @override
@@ -59,7 +65,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     ];
 
-    final titles = ['Bản đồ', 'Địa điểm đã lưu', 'Tài khoản'];
+    final titles = ['Ban do', 'Dia diem da luu', 'Tai khoan'];
 
     return Scaffold(
       appBar: AppBar(
@@ -76,17 +82,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
           NavigationDestination(
             icon: Icon(Icons.map_outlined),
             selectedIcon: Icon(Icons.map),
-            label: 'Bản đồ',
+            label: 'Ban do',
           ),
           NavigationDestination(
             icon: Icon(Icons.bookmark_border),
             selectedIcon: Icon(Icons.bookmark),
-            label: 'Đã lưu',
+            label: 'Da luu',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline),
             selectedIcon: Icon(Icons.person),
-            label: 'Tài khoản',
+            label: 'Tai khoan',
           ),
         ],
       ),

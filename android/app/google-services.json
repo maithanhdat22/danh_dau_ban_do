@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "346863270119",
+    "firebase_url": "https://bandodichuyen-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "bandodichuyen",
+    "storage_bucket": "bandodichuyen.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:346863270119:android:db97a3053fd312ace5ca42",
+        "android_client_info": {
+          "package_name": "com.example.ban_do"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCtnQQwxFvHwwtGlTHCkfvCciSklWF3G-Y"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
