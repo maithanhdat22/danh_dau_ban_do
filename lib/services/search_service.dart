@@ -7,6 +7,7 @@ class SearchService {
       'q': query,
       'format': 'json',
       'limit': '1',
+      'addressdetails': '1',
     });
 
     final response = await http.get(
@@ -25,5 +26,31 @@ class SearchService {
     }
 
     return null;
+  }
+
+  static Future<List<Map<String, dynamic>>> searchPlaces(String query) async {
+    final uri = Uri.https('nominatim.openstreetmap.org', '/search', {
+      'q': query,
+      'format': 'json',
+      'limit': '5',
+      'addressdetails': '1',
+    });
+
+    final response = await http.get(
+      uri,
+      headers: {
+        'User-Agent': 'travel-map-app/1.0',
+        'Accept': 'application/json',
+      },
+    );
+
+    if (response.statusCode != 200) return [];
+
+    final data = jsonDecode(response.body);
+    if (data is List) {
+      return data.map((e) => Map<String, dynamic>.from(e)).toList();
+    }
+
+    return [];
   }
 }

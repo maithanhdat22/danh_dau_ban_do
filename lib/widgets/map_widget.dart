@@ -68,6 +68,12 @@ class _MapWidgetState extends State<MapWidget> {
   TransportOption selectedTransport = TransportOptions.items.first;
   SearchMode currentSearchMode = SearchMode.destination;
 
+  final List<String> recentSearches = [];
+  bool showRecentSearches = false;
+  bool isSearching = false;
+  List<Map<String, dynamic>> searchSuggestions = [];
+  bool showSuggestions = false;
+
   @override
   void initState() {
     super.initState();
@@ -95,6 +101,8 @@ class _MapWidgetState extends State<MapWidget> {
     if (pos == null) return;
 
     final firstPoint = LatLng(pos.latitude, pos.longitude);
+
+    if (!mounted) return;
 
     setState(() {
       currentLocation = firstPoint;
@@ -150,6 +158,7 @@ class _MapWidgetState extends State<MapWidget> {
         }
 
         if (remainingDistanceInMeters > 0 && remainingDistanceInMeters <= 30) {
+          if (!mounted) return;
           setState(() {
             isNavigating = false;
           });
@@ -160,6 +169,162 @@ class _MapWidgetState extends State<MapWidget> {
         }
       }
     });
+  }
+
+  void _addRecentSearch(String value) {
+    final keyword = value.trim();
+    if (keyword.isEmpty) return;
+
+    setState(() {
+      recentSearches.remove(keyword);
+      recentSearches.insert(0, keyword);
+
+      if (recentSearches.length > 6) {
+        recentSearches.removeLast();
+      }
+    });
+  }
+
+  void _hideSearchPanels() {
+    if (!mounted) return;
+    setState(() {
+      showRecentSearches = false;
+      showSuggestions = false;
+    });
+  }
+
+  Future<void> _loadSuggestions(String query) async {
+    final keyword = query.trim();
+
+    if (keyword.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        searchSuggestions = [];
+        showSuggestions = false;
+        showRecentSearches = recentSearches.isNotEmpty;
+        isSearching = false;
+      });
+      return;
+    }
+
+    setState(() {
+      isSearching = true;
+      showRecentSearches = false;
+    });
+
+    final results = await SearchService.searchPlaces(keyword);
+
+    if (!mounted) return;
+    setState(() {
+      searchSuggestions = results;
+      showSuggestions = results.isNotEmpty;
+      isSearching = false;
+    });
+  }
+
+  Future<void> _selectSuggestion(Map<String, dynamic> item) async {
+    final lat = double.tryParse(item['lat'].toString());
+    final lon = double.tryParse(item['lon'].toString());
+    final displayName = (item['display_name'] ?? '').toString();
+
+    if (lat == null || lon == null) return;
+
+    final point = LatLng(lat, lon);
+    final title = displayName.isNotEmpty ? displayName : 'Địa điểm đã chọn';
+
+    _addRecentSearch(title);
+
+    setState(() {
+      switch (currentSearchMode) {
+        case SearchMode.start:
+          startPoint = point;
+          startName = title;
+          break;
+        case SearchMode.stop:
+          stopPoints.add(point);
+          stopNames.add(title);
+          break;
+        case SearchMode.destination:
+          destinationPoint = point;
+          destinationName = title;
+          break;
+      }
+      showSuggestions = false;
+      showRecentSearches = false;
+    });
+
+    final previewPoints = _getPreviewWaypoints();
+    if (previewPoints.length >= 2) {
+      mapController.fitCamera(
+        CameraFit.coordinates(
+          coordinates: previewPoints,
+          padding: const EdgeInsets.all(80),
+        ),
+      );
+    } else {
+      mapController.move(point, 15);
+    }
+
+    await _buildPreviewRoute();
+
+    if (!mounted) return;
+
+    searchController.clear();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Đã chọn: $title')),
+    );
+
+    setState(() {
+      currentSearchMode = SearchMode.destination;
+    });
+  }
+
+  void _selectRecentSearch(String value) {
+    searchController.text = value;
+    _searchLocation(value);
+  }
+
+  void _selectPointOnMap(LatLng point) {
+    final title =
+        'Lat ${point.latitude.toStringAsFixed(5)}, Lng ${point.longitude.toStringAsFixed(5)}';
+
+    setState(() {
+      switch (currentSearchMode) {
+        case SearchMode.start:
+          startPoint = point;
+          startName = title;
+          break;
+        case SearchMode.stop:
+          stopPoints.add(point);
+          stopNames.add(title);
+          break;
+        case SearchMode.destination:
+          destinationPoint = point;
+          destinationName = title;
+          break;
+      }
+      showRecentSearches = false;
+      showSuggestions = false;
+    });
+
+    final previewPoints = _getPreviewWaypoints();
+    if (previewPoints.length >= 2) {
+      mapController.fitCamera(
+        CameraFit.coordinates(
+          coordinates: previewPoints,
+          padding: const EdgeInsets.all(80),
+        ),
+      );
+    } else {
+      mapController.move(point, 15);
+    }
+
+    _buildPreviewRoute();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Đã chọn điểm: $title')),
+    );
   }
 
   String _getOsrmProfile() {
@@ -315,9 +480,12 @@ class _MapWidgetState extends State<MapWidget> {
   }
 
   Future<void> _searchLocation(String query) async {
-    if (query.trim().isEmpty) return;
+    final keyword = query.trim();
+    if (keyword.isEmpty) return;
 
-    final result = await SearchService.searchPlace(query.trim());
+    _addRecentSearch(keyword);
+
+    final result = await SearchService.searchPlace(keyword);
 
     if (result == null) {
       if (!mounted) return;
@@ -333,7 +501,7 @@ class _MapWidgetState extends State<MapWidget> {
     if (lat == null || lon == null) return;
 
     final point = LatLng(lat, lon);
-    final title = query.trim();
+    final title = (result['display_name'] ?? keyword).toString();
 
     setState(() {
       switch (currentSearchMode) {
@@ -350,6 +518,8 @@ class _MapWidgetState extends State<MapWidget> {
           destinationName = title;
           break;
       }
+      showRecentSearches = false;
+      showSuggestions = false;
     });
 
     final previewPoints = _getPreviewWaypoints();
@@ -388,6 +558,8 @@ class _MapWidgetState extends State<MapWidget> {
 
     setState(() {
       isNavigating = true;
+      showRecentSearches = false;
+      showSuggestions = false;
     });
 
     await _buildNavigationRoute();
@@ -445,13 +617,26 @@ class _MapWidgetState extends State<MapWidget> {
       remainingDurationInSeconds = 0;
       isNavigating = false;
       currentSearchMode = SearchMode.destination;
+      showRecentSearches = false;
+      showSuggestions = false;
     });
+  }
+
+  String _buildStaticMapImage(LatLng point) {
+    return 'https://staticmap.openstreetmap.de/staticmap.php?center=${point.latitude},${point.longitude}&zoom=15&size=700x350&markers=${point.latitude},${point.longitude},red-pushpin';
+  }
+
+  String _buildAddressText(LatLng point) {
+    return 'Lat: ${point.latitude.toStringAsFixed(6)}, Lng: ${point.longitude.toStringAsFixed(6)}';
   }
 
   void _saveCurrentLocation() {
     if (currentLocation == null) return;
 
     final point = currentLocation!;
+    final now = DateTime.now();
+    final imageUrl = _buildStaticMapImage(point);
+    final address = _buildAddressText(point);
 
     setState(() {
       savedMarkers.add(
@@ -470,13 +655,16 @@ class _MapWidgetState extends State<MapWidget> {
 
     widget.onPlaceSaved(
       PlaceMarker(
-        title:
-        'Vị trí ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}',
+        id: now.millisecondsSinceEpoch.toString(),
+        title: 'Vị trí ${now.hour}:${now.minute.toString().padLeft(2, '0')}',
         latitude: point.latitude,
         longitude: point.longitude,
-        createdAt: DateTime.now(),
+        createdAt: now,
         distanceAtSave: totalDistanceInMeters,
         transportName: selectedTransport.name,
+        description: 'Địa điểm đã đi qua và được lưu từ bản đồ',
+        imageUrl: imageUrl,
+        address: address,
       ),
     );
 
@@ -575,30 +763,33 @@ class _MapWidgetState extends State<MapWidget> {
   }) {
     return Tooltip(
       message: tooltip,
-      child: Container(
-        width: 56,
-        height: 56,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white, width: 2.5),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.20),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(100),
-            onTap: onPressed,
-            child: Icon(
-              icon,
-              color: Colors.white,
-              size: 28,
+      child: Opacity(
+        opacity: onPressed == null ? 0.6 : 1,
+        child: Container(
+          width: 56,
+          height: 56,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2.5),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.20),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(100),
+              onTap: onPressed,
+              child: Icon(
+                icon,
+                color: Colors.white,
+                size: 28,
+              ),
             ),
           ),
         ),
@@ -638,6 +829,8 @@ class _MapWidgetState extends State<MapWidget> {
             onTap: () {
               setState(() {
                 currentSearchMode = mode;
+                showRecentSearches = false;
+                showSuggestions = false;
               });
             },
             child: Row(
@@ -675,6 +868,73 @@ class _MapWidgetState extends State<MapWidget> {
     );
   }
 
+  Widget _searchPanel() {
+    if (showSuggestions && searchSuggestions.isNotEmpty) {
+      return Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(top: 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          children: searchSuggestions.map((item) {
+            final title = (item['display_name'] ?? 'Địa điểm').toString();
+            return ListTile(
+              leading: const Icon(Icons.location_on_outlined),
+              title: Text(
+                title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              onTap: () => _selectSuggestion(item),
+            );
+          }).toList(),
+        ),
+      );
+    }
+
+    if (showRecentSearches && recentSearches.isNotEmpty) {
+      return Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(top: 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          children: recentSearches.map((item) {
+            return ListTile(
+              leading: const Icon(Icons.history),
+              title: Text(
+                item,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              onTap: () => _selectRecentSearch(item),
+            );
+          }).toList(),
+        ),
+      );
+    }
+
+    return const SizedBox.shrink();
+  }
+
   void _showInfoMenu() {
     showModalBottomSheet(
       context: context,
@@ -708,7 +968,10 @@ class _MapWidgetState extends State<MapWidget> {
                   'Điểm đến: ${destinationName.isEmpty ? 'Chưa chọn' : destinationName}',
                   Icons.flag,
                 ),
-                _menuTile('Phương tiện: ${selectedTransport.name}', Icons.directions),
+                _menuTile(
+                  'Phương tiện: ${selectedTransport.name}',
+                  Icons.directions,
+                ),
                 _menuTile(
                   'Tuyến xem trước: ${(plannedRouteDistanceInMeters / 1000).toStringAsFixed(2)} km',
                   Icons.alt_route,
@@ -733,7 +996,8 @@ class _MapWidgetState extends State<MapWidget> {
                   'Đã đi thực tế: ${(totalDistanceInMeters / 1000).toStringAsFixed(2)} km',
                   Icons.route,
                 ),
-                if (isRouting) _menuTile('Đang tính tuyến đường...', Icons.sync),
+                if (isRouting)
+                  _menuTile('Đang tính tuyến đường...', Icons.sync),
               ],
             ),
           ),
@@ -760,7 +1024,10 @@ class _MapWidgetState extends State<MapWidget> {
             child: const Center(
               child: Text(
                 'A',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ),
@@ -783,7 +1050,10 @@ class _MapWidgetState extends State<MapWidget> {
             child: Center(
               child: Text(
                 '${i + 1}',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ),
@@ -806,7 +1076,10 @@ class _MapWidgetState extends State<MapWidget> {
             child: const Center(
               child: Text(
                 'B',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ),
@@ -838,50 +1111,60 @@ class _MapWidgetState extends State<MapWidget> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    return Stack(
-      children: [
-        FlutterMap(
-          mapController: mapController,
-          options: MapOptions(
-            initialCenter: currentLocation!,
-            initialZoom: 15,
-          ),
-          children: [
-            TileLayer(
-              urlTemplate: _tileUrl,
-              userAgentPackageName: 'com.example.danh_dau_ban_do',
+    final media = MediaQuery.of(context);
+    final topInset = media.padding.top;
+    final bottomInset = media.padding.bottom;
+
+    return GestureDetector(
+      onTap: _hideSearchPanels,
+      child: Stack(
+        children: [
+          FlutterMap(
+            mapController: mapController,
+            options: MapOptions(
+              initialCenter: currentLocation!,
+              initialZoom: 15,
+              onTap: (_, point) {
+                _hideSearchPanels();
+                _selectPointOnMap(point);
+              },
             ),
-            PolylineLayer(
-              polylines: [
-                Polyline(
-                  points: routePoints,
-                  strokeWidth: 5,
-                  color: Colors.blue.withOpacity(0.25),
-                ),
-              ],
-            ),
-            if (routedPath.length >= 2)
+            children: [
+              TileLayer(
+                urlTemplate: _tileUrl,
+                userAgentPackageName: 'com.example.danh_dau_ban_do',
+              ),
               PolylineLayer(
                 polylines: [
                   Polyline(
-                    points: routedPath,
-                    strokeWidth: 6,
-                    color: Colors.orange,
+                    points: routePoints,
+                    strokeWidth: 5,
+                    color: Colors.blue.withOpacity(0.25),
                   ),
                 ],
               ),
-            MarkerLayer(
-              markers: [
-                ..._buildRouteMarkers(),
-                ...savedMarkers,
-              ],
-            ),
-          ],
-        ),
-
-        SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+              if (routedPath.length >= 2)
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: routedPath,
+                      strokeWidth: 6,
+                      color: Colors.orange,
+                    ),
+                  ],
+                ),
+              MarkerLayer(
+                markers: [
+                  ..._buildRouteMarkers(),
+                  ...savedMarkers,
+                ],
+              ),
+            ],
+          ),
+          Positioned(
+            top: topInset + 12,
+            left: 12,
+            right: 12,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -890,16 +1173,27 @@ class _MapWidgetState extends State<MapWidget> {
                   borderRadius: BorderRadius.circular(16),
                   child: TextField(
                     controller: searchController,
+                    textInputAction: TextInputAction.search,
                     decoration: InputDecoration(
                       hintText: _searchHintText(),
                       filled: true,
                       fillColor: Colors.white,
                       prefixIcon: const Icon(Icons.search_rounded),
-                      suffixIcon: IconButton(
+                      suffixIcon: isSearching
+                          ? const Padding(
+                        padding: EdgeInsets.all(14),
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                          : IconButton(
                         onPressed: () => _searchLocation(searchController.text),
                         icon: const Icon(Icons.arrow_forward_rounded),
                       ),
-                      contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                      contentPadding:
+                      const EdgeInsets.symmetric(vertical: 14),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),
                         borderSide: BorderSide.none,
@@ -916,9 +1210,23 @@ class _MapWidgetState extends State<MapWidget> {
                         ),
                       ),
                     ),
-                    onSubmitted: _searchLocation,
+                    onTap: () {
+                      setState(() {
+                        showRecentSearches =
+                            searchController.text.trim().isEmpty &&
+                                recentSearches.isNotEmpty;
+                        showSuggestions = false;
+                      });
+                    },
+                    onChanged: (value) {
+                      _loadSuggestions(value);
+                    },
+                    onSubmitted: (value) {
+                      _searchLocation(value);
+                    },
                   ),
                 ),
+                _searchPanel(),
                 const SizedBox(height: 10),
                 Row(
                   children: [
@@ -944,111 +1252,113 @@ class _MapWidgetState extends State<MapWidget> {
               ],
             ),
           ),
-        ),
-
-        Positioned(
-          top: 118,
-          right: 16,
-          child: Container(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.15),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
+          Positioned(
+            top: topInset + 118,
+            right: 16,
+            child: Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.15),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: FloatingActionButton.small(
+                heroTag: 'info_menu_btn',
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.black87,
+                onPressed: _showInfoMenu,
+                child: const Icon(
+                  Icons.info_outline_rounded,
+                  size: 22,
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: topInset + 170,
+            right: 16,
+            child: Column(
+              children: [
+                _bottomButton(
+                  icon: Icons.directions_car_rounded,
+                  color: const Color(0xFF0EA5E9),
+                  tooltip: 'Chọn phương tiện',
+                  onPressed: _showTransportPicker,
+                ),
+                const SizedBox(height: 10),
+                _bottomButton(
+                  icon: Icons.map_rounded,
+                  color: const Color(0xFF8B5CF6),
+                  tooltip: 'Đổi kiểu bản đồ',
+                  onPressed: _showStylePicker,
+                ),
+                const SizedBox(height: 10),
+                _bottomButton(
+                  icon: Icons.bookmark_added_rounded,
+                  color: const Color(0xFFEC4899),
+                  tooltip: 'Lưu vị trí hiện tại',
+                  onPressed: _saveCurrentLocation,
+                ),
+                const SizedBox(height: 10),
+                _bottomButton(
+                  icon: Icons.gps_fixed_rounded,
+                  color: const Color(0xFF14B8A6),
+                  tooltip: 'Về vị trí hiện tại',
+                  onPressed: () {
+                    if (currentLocation != null) {
+                      mapController.move(
+                        currentLocation!,
+                        isNavigating ? 17 : 15,
+                      );
+                    }
+                  },
                 ),
               ],
             ),
-            child: FloatingActionButton.small(
-              heroTag: 'info_menu_btn',
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.black87,
-              onPressed: _showInfoMenu,
-              child: const Icon(
-                Icons.info_outline_rounded,
-                size: 22,
-              ),
+          ),
+          Positioned(
+            left: 16,
+            bottom: bottomInset + 90,
+            child: Column(
+              children: [
+                _bottomButton(
+                  icon: Icons.navigation_rounded,
+                  color: isNavigating
+                      ? Colors.grey.shade400
+                      : const Color(0xFF16A34A),
+                  tooltip: 'Bắt đầu chỉ đường',
+                  onPressed: isNavigating ? null : _startNavigation,
+                ),
+                const SizedBox(height: 10),
+                _bottomButton(
+                  icon: Icons.pause_circle_filled_rounded,
+                  color: const Color(0xFFF59E0B),
+                  tooltip: 'Dừng chỉ đường',
+                  onPressed: _stopNavigation,
+                ),
+                const SizedBox(height: 10),
+                _bottomButton(
+                  icon: Icons.remove_circle_rounded,
+                  color: const Color(0xFF6366F1),
+                  tooltip: 'Xóa điểm dừng cuối',
+                  onPressed: _removeLastStop,
+                ),
+                const SizedBox(height: 10),
+                _bottomButton(
+                  icon: Icons.delete_forever_rounded,
+                  color: const Color(0xFFEF4444),
+                  tooltip: 'Xóa toàn bộ tuyến',
+                  onPressed: _clearRoute,
+                ),
+              ],
             ),
           ),
-        ),
-
-        Positioned(
-          left: 16,
-          bottom: 24,
-          child: Column(
-            children: [
-              _bottomButton(
-                icon: Icons.navigation_rounded,
-                color: isNavigating ? Colors.grey.shade400 : const Color(0xFF16A34A),
-                tooltip: 'Bắt đầu chỉ đường',
-                onPressed: isNavigating ? null : _startNavigation,
-              ),
-              const SizedBox(height: 10),
-              _bottomButton(
-                icon: Icons.pause_circle_filled_rounded,
-                color: const Color(0xFFF59E0B),
-                tooltip: 'Dừng chỉ đường',
-                onPressed: _stopNavigation,
-              ),
-              const SizedBox(height: 10),
-              _bottomButton(
-                icon: Icons.remove_circle_rounded,
-                color: const Color(0xFF6366F1),
-                tooltip: 'Xóa điểm dừng cuối',
-                onPressed: _removeLastStop,
-              ),
-              const SizedBox(height: 10),
-              _bottomButton(
-                icon: Icons.delete_forever_rounded,
-                color: const Color(0xFFEF4444),
-                tooltip: 'Xóa toàn bộ tuyến',
-                onPressed: _clearRoute,
-              ),
-            ],
-          ),
-        ),
-
-        Positioned(
-          right: 16,
-          bottom: 190,
-          child: Column(
-            children: [
-              _bottomButton(
-                icon: Icons.directions_car_rounded,
-                color: const Color(0xFF0EA5E9),
-                tooltip: 'Chọn phương tiện',
-                onPressed: _showTransportPicker,
-              ),
-              const SizedBox(height: 10),
-              _bottomButton(
-                icon: Icons.map_rounded,
-                color: const Color(0xFF8B5CF6),
-                tooltip: 'Đổi kiểu bản đồ',
-                onPressed: _showStylePicker,
-              ),
-              const SizedBox(height: 10),
-              _bottomButton(
-                icon: Icons.bookmark_added_rounded,
-                color: const Color(0xFFEC4899),
-                tooltip: 'Lưu vị trí hiện tại',
-                onPressed: _saveCurrentLocation,
-              ),
-              const SizedBox(height: 10),
-              _bottomButton(
-                icon: Icons.gps_fixed_rounded,
-                color: const Color(0xFF14B8A6),
-                tooltip: 'Về vị trí hiện tại',
-                onPressed: () {
-                  if (currentLocation != null) {
-                    mapController.move(currentLocation!, isNavigating ? 17 : 15);
-                  }
-                },
-              ),
-            ],
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

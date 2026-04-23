@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/app_user.dart';
 import '../models/place_marker.dart';
 import '../services/auth_service.dart';
+import '../services/saved_places_service.dart';
 import 'login_screen.dart';
 import 'map_tab_screen.dart';
 import 'profile_screen.dart';
@@ -22,18 +23,44 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   int _currentIndex = 0;
-  final List<PlaceMarker> _savedPlaces = [];
+  List<PlaceMarker> _savedPlaces = [];
 
-  void _addPlace(PlaceMarker place) {
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedPlaces();
+  }
+
+  Future<void> _loadSavedPlaces() async {
+    final places = await SavedPlacesService.getPlaces();
+    if (!mounted) return;
     setState(() {
-      _savedPlaces.add(place);
+      _savedPlaces = places;
     });
   }
 
-  void _removePlace(int index) {
-    setState(() {
-      _savedPlaces.removeAt(index);
-    });
+  Future<void> _addPlace(PlaceMarker place) async {
+    await SavedPlacesService.addPlace(place);
+    await _loadSavedPlaces();
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Đã lưu địa điểm thành công'),
+      ),
+    );
+  }
+
+  Future<void> _removePlace(int index) async {
+    await SavedPlacesService.removePlaceAt(index);
+    await _loadSavedPlaces();
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Đã xóa địa điểm đã lưu'),
+      ),
+    );
   }
 
   void _logout() {
@@ -43,7 +70,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const LoginScreen()),
-        (route) => false,
+            (route) => false,
       );
     });
   }
@@ -65,7 +92,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     ];
 
-    final titles = ['Ban do', 'Dia diem da luu', 'Tai khoan'];
+    final titles = ['Bản đồ', 'Địa điểm đã lưu', 'Tài khoản'];
 
     return Scaffold(
       appBar: AppBar(
@@ -82,17 +109,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
           NavigationDestination(
             icon: Icon(Icons.map_outlined),
             selectedIcon: Icon(Icons.map),
-            label: 'Ban do',
+            label: 'Bản đồ',
           ),
           NavigationDestination(
             icon: Icon(Icons.bookmark_border),
             selectedIcon: Icon(Icons.bookmark),
-            label: 'Da luu',
+            label: 'Đã lưu',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline),
             selectedIcon: Icon(Icons.person),
-            label: 'Tai khoan',
+            label: 'Tài khoản',
           ),
         ],
       ),
