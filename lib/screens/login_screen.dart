@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../models/app_user.dart';
 import '../services/auth_service.dart';
 import 'dashboard_screen.dart';
@@ -13,24 +14,50 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-
-  final _usernameController = TextEditingController(text: 'admin');
-  final _passwordController = TextEditingController(text: '123456');
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
 
   bool _isLoading = false;
   bool _obscurePassword = true;
+  bool _isNavigating = false;
 
   @override
   void initState() {
     super.initState();
-    AuthService.seedDefaultUserIfNeeded();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _restoreSessionIfNeeded();
+    });
   }
 
   @override
   void dispose() {
-    _usernameController.dispose();
+    _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  void _goToDashboard(AppUser user) {
+    if (!mounted || _isNavigating) return;
+
+    _isNavigating = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => DashboardScreen(user: user),
+        ),
+      );
+    });
+  }
+
+  Future<void> _restoreSessionIfNeeded() async {
+    final user = AuthService.getCurrentUser();
+    if (user == null || !mounted) return;
+
+    _goToDashboard(user);
   }
 
   Future<void> _handleLogin() async {
@@ -38,38 +65,48 @@ class _LoginScreenState extends State<LoginScreen> {
 
     setState(() => _isLoading = true);
 
-    final AppUser? user = await AuthService.login(
-      username: _usernameController.text.trim(),
-      password: _passwordController.text.trim(),
-    );
-
-    setState(() => _isLoading = false);
-
-    if (!mounted) return;
-
-    if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Sai tên đăng nhập hoặc mật khẩu')),
+    try {
+      final AppUser user = await AuthService.login(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
       );
-      return;
-    }
 
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => DashboardScreen(user: user)),
-    );
+      if (!mounted) return;
+
+      _goToDashboard(user);
+    } on AuthException catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Lỗi đăng nhập: $error')),
+      );
+    } finally {
+      if (mounted && !_isNavigating) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   InputDecoration _inputDecoration(String label, IconData icon) {
     return InputDecoration(
       labelText: label,
       prefixIcon: Icon(icon),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final configMessage = AuthService.initializationErrorMessage;
+
     return Scaffold(
       body: SafeArea(
         child: Center(
@@ -99,16 +136,36 @@ class _LoginScreenState extends State<LoginScreen> {
                           'Đăng nhập để sử dụng ứng dụng bản đồ',
                           textAlign: TextAlign.center,
                         ),
+                        if (configMessage != null) ...[
+                          const SizedBox(height: 16),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.shade100,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.amber.shade300),
+                            ),
+                            child: Text(
+                              configMessage,
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 24),
                         TextFormField(
-                          controller: _usernameController,
+                          controller: _emailController,
+                          keyboardType: TextInputType.emailAddress,
                           decoration: _inputDecoration(
-                            'Tên đăng nhập',
-                            Icons.person_outline,
+                            'Email',
+                            Icons.email_outlined,
                           ),
                           validator: (value) {
                             if (value == null || value.trim().isEmpty) {
-                              return 'Vui lòng nhập tên đăng nhập';
+                              return 'Vui lòng nhập email';
+                            }
+                            if (!value.contains('@')) {
+                              return 'Email không hợp lệ';
                             }
                             return null;
                           },
@@ -149,40 +206,28 @@ class _LoginScreenState extends State<LoginScreen> {
                             onPressed: _isLoading ? null : _handleLogin,
                             icon: const Icon(Icons.login),
                             label: _isLoading
-                                ? const CircularProgressIndicator()
+                                ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                              ),
+                            )
                                 : const Text('Đăng nhập'),
                           ),
                         ),
                         const SizedBox(height: 12),
                         TextButton(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
+                          onPressed: _isLoading
+                              ? null
+                              : () {
+                            Navigator.of(context).push(
                               MaterialPageRoute(
                                 builder: (_) => const RegisterScreen(),
                               ),
                             );
                           },
                           child: const Text('Chưa có tài khoản? Đăng ký'),
-                        ),
-                        const SizedBox(height: 8),
-                        const Divider(),
-                        const SizedBox(height: 8),
-                        const Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            'Tài khoản mặc định:',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        const Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text('Username: admin'),
-                        ),
-                        const Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text('Password: 123456'),
                         ),
                       ],
                     ),

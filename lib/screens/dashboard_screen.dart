@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+
 import '../models/app_user.dart';
 import '../models/place_marker.dart';
+import '../services/auth_service.dart';
+import '../services/saved_places_service.dart';
 import 'login_screen.dart';
 import 'map_tab_screen.dart';
 import 'profile_screen.dart';
@@ -20,31 +23,18 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   int _currentIndex = 0;
-  final List<PlaceMarker> _savedPlaces = [];
+  List<PlaceMarker> _savedPlaces = [];
 
-  void _addPlace(PlaceMarker place) {
-    setState(() {
-      _savedPlaces.add(place);
-    });
-  }
-
-  void _removePlace(int index) {
-    setState(() {
-      _savedPlaces.removeAt(index);
-    });
-  }
-
-  void _logout() {
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-          (route) => false,
-    );
-  }
+  // FIX: Khai báo pages một lần duy nhất, không tạo lại mỗi build
+  late final List<Widget> _pages;
 
   @override
-  Widget build(BuildContext context) {
-    final pages = [
+  void initState() {
+    super.initState();
+    _loadSavedPlaces();
+
+    // FIX: Khởi tạo pages đúng một lần → MapWidget không bị dispose/reinit
+    _pages = [
       MapTabScreen(
         user: widget.user,
         onPlaceSaved: _addPlace,
@@ -58,15 +48,66 @@ class _DashboardScreenState extends State<DashboardScreen> {
         onLogout: _logout,
       ),
     ];
+  }
 
-    final titles = ['Bản đồ', 'Địa điểm đã lưu', 'Tài khoản'];
+  Future<void> _loadSavedPlaces() async {
+    final places = await SavedPlacesService.getPlaces();
+    if (!mounted) return;
+    setState(() {
+      _savedPlaces = places;
+      // FIX: Cập nhật SavedPlacesScreen trong IndexedStack thay vì tạo mới
+      _pages[1] = SavedPlacesScreen(
+        places: places,
+        onDelete: _removePlace,
+      );
+    });
+  }
 
+  Future<void> _addPlace(PlaceMarker place) async {
+    await SavedPlacesService.addPlace(place);
+    await _loadSavedPlaces();
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Đã lưu địa điểm thành công')),
+    );
+  }
+
+  Future<void> _removePlace(int index) async {
+    await SavedPlacesService.removePlaceAt(index);
+    await _loadSavedPlaces();
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Đã xóa địa điểm đã lưu')),
+    );
+  }
+
+  void _logout() {
+    AuthService.logout().whenComplete(() {
+      if (!mounted) return;
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+            (route) => false,
+      );
+    });
+  }
+
+  static const _titles = ['Bản đồ', 'Địa điểm đã lưu', 'Tài khoản'];
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(titles[_currentIndex]),
+        title: Text(_titles[_currentIndex]),
         centerTitle: true,
       ),
-      body: pages[_currentIndex],
+      // FIX: IndexedStack giữ nguyên state các tab, không dispose/rebuild
+      body: IndexedStack(
+        index: _currentIndex,
+        children: _pages,
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (index) {
