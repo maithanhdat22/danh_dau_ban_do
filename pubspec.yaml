@@ -2,7 +2,7 @@ name: ban_do
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 1.0.0+2
 
 environment:
   sdk: ">=3.11.3 <4.0.0"
@@ -19,11 +19,22 @@ dependencies:
   http: ^1.2.1
   shared_preferences: ^2.2.3
   cupertino_icons: ^1.0.8
+  flutter_tts: ^4.0.2   # ✅ chuyển lên đây
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon.png"
+  adaptive_icon_background: "#ffffff"
 
 flutter:
   uses-material-design: true
+
+  assets:
+    - assets/icon.png

@@ -19,11 +19,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool _isLoading = false;
   bool _obscurePassword = true;
+  bool _isNavigating = false;
 
   @override
   void initState() {
     super.initState();
-    _restoreSessionIfNeeded();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _restoreSessionIfNeeded();
+    });
   }
 
   @override
@@ -33,14 +37,27 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  void _goToDashboard(AppUser user) {
+    if (!mounted || _isNavigating) return;
+
+    _isNavigating = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => DashboardScreen(user: user),
+        ),
+      );
+    });
+  }
+
   Future<void> _restoreSessionIfNeeded() async {
     final user = AuthService.getCurrentUser();
     if (user == null || !mounted) return;
 
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => DashboardScreen(user: user)),
-    );
+    _goToDashboard(user);
   }
 
   Future<void> _handleLogin() async {
@@ -56,18 +73,21 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (!mounted) return;
 
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => DashboardScreen(user: user)),
-      );
+      _goToDashboard(user);
     } on AuthException catch (error) {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(error.message)),
       );
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Lỗi đăng nhập: $error')),
+      );
     } finally {
-      if (mounted) {
+      if (mounted && !_isNavigating) {
         setState(() => _isLoading = false);
       }
     }
@@ -77,7 +97,9 @@ class _LoginScreenState extends State<LoginScreen> {
     return InputDecoration(
       labelText: label,
       prefixIcon: Icon(icon),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+      ),
     );
   }
 
@@ -111,7 +133,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 8),
                         const Text(
-                          'Dang nhap bang Firebase Authentication de su dung ung dung ban do',
+                          'Đăng nhập để sử dụng ứng dụng bản đồ',
                           textAlign: TextAlign.center,
                         ),
                         if (configMessage != null) ...[
@@ -134,14 +156,16 @@ class _LoginScreenState extends State<LoginScreen> {
                         TextFormField(
                           controller: _emailController,
                           keyboardType: TextInputType.emailAddress,
-                          decoration:
-                              _inputDecoration('Email', Icons.email_outlined),
+                          decoration: _inputDecoration(
+                            'Email',
+                            Icons.email_outlined,
+                          ),
                           validator: (value) {
                             if (value == null || value.trim().isEmpty) {
-                              return 'Vui long nhap email';
+                              return 'Vui lòng nhập email';
                             }
                             if (!value.contains('@')) {
-                              return 'Email khong hop le';
+                              return 'Email không hợp lệ';
                             }
                             return null;
                           },
@@ -151,7 +175,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           controller: _passwordController,
                           obscureText: _obscurePassword,
                           decoration: _inputDecoration(
-                            'Mat khau',
+                            'Mật khẩu',
                             Icons.lock_outline,
                           ).copyWith(
                             suffixIcon: IconButton(
@@ -169,7 +193,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           validator: (value) {
                             if (value == null || value.trim().isEmpty) {
-                              return 'Vui long nhap mat khau';
+                              return 'Vui lòng nhập mật khẩu';
                             }
                             return null;
                           },
@@ -183,47 +207,27 @@ class _LoginScreenState extends State<LoginScreen> {
                             icon: const Icon(Icons.login),
                             label: _isLoading
                                 ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
-                                  )
-                                : const Text('Dang nhap'),
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                              ),
+                            )
+                                : const Text('Đăng nhập'),
                           ),
                         ),
                         const SizedBox(height: 12),
                         TextButton(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
+                          onPressed: _isLoading
+                              ? null
+                              : () {
+                            Navigator.of(context).push(
                               MaterialPageRoute(
                                 builder: (_) => const RegisterScreen(),
                               ),
                             );
                           },
-                          child: const Text('Chua co tai khoan? Dang ky'),
-                        ),
-                        const SizedBox(height: 8),
-                        const Divider(),
-                        const SizedBox(height: 8),
-                        const Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            'Firebase setup:',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        const Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text('1. Bat Email/Password trong Firebase Auth'),
-                        ),
-                        const Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text('2. Android da co config; iOS can them gia tri that trong lib/firebase_options.dart'),
-                        ),
-                        const Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text('3. Dat google-services.json trong android/app va GoogleService-Info.plist trong ios/Runner'),
+                          child: const Text('Chưa có tài khoản? Đăng ký'),
                         ),
                       ],
                     ),
