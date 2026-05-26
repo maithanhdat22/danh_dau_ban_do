@@ -17,7 +17,10 @@ class AuthService {
   static String? _initializationErrorMessage;
 
   static bool get isConfigured => DefaultFirebaseOptions.isConfigured;
-  static bool get isReady => isConfigured && _initializationErrorMessage == null;
+  static bool get isReady =>
+      isConfigured &&
+      _initializationErrorMessage == null &&
+      Firebase.apps.isNotEmpty;
   static String? get initializationErrorMessage =>
       _initializationErrorMessage ?? DefaultFirebaseOptions.configurationIssue;
 
@@ -42,6 +45,7 @@ class AuthService {
   }
 
   static AppUser? getCurrentUser() {
+    if (!isReady) return null;
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return null;
     return _mapFirebaseUser(user);
@@ -80,11 +84,11 @@ class AuthService {
     _ensureAvailable();
 
     try {
-      final credential =
-          await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: email.trim(),
-        password: password,
-      );
+      final credential = await FirebaseAuth.instance
+          .createUserWithEmailAndPassword(
+            email: email.trim(),
+            password: password,
+          );
 
       final user = credential.user;
       if (user == null) {
@@ -122,6 +126,10 @@ class AuthService {
 
     if (_initializationErrorMessage != null) {
       throw AuthException(_initializationErrorMessage!);
+    }
+
+    if (!isReady) {
+      throw const AuthException('Firebase chua duoc khoi tao.');
     }
   }
 

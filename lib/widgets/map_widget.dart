@@ -96,6 +96,7 @@ class _MapWidgetState extends State<MapWidget>
 
   List<Map<String, dynamic>> _suggestions = [];
   List<LatLng> _routePoints = [];
+  List<double> _routeCumulativeMeters = [];
   double _routeDistanceMeters = 0;
   double _routeDurationSeconds = 0;
 
@@ -106,9 +107,7 @@ class _MapWidgetState extends State<MapWidget>
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 12),
-    )..addListener(() {
-        if (mounted) setState(() {});
-      });
+    );
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _buildRoute(fitRoute: true);
@@ -163,21 +162,20 @@ class _MapWidgetState extends State<MapWidget>
   }
 
   double get _vehicleBearing {
-    final point = _vehiclePoint;
-    if (point == null || _routePoints.length < 2) return 0;
-
-    var nearestIndex = 0;
-    var nearestDistance = double.infinity;
-    for (var i = 0; i < _routePoints.length; i++) {
-      final d = _distance.as(LengthUnit.Meter, point, _routePoints[i]);
-      if (d < nearestDistance) {
-        nearestDistance = d;
-        nearestIndex = i;
-      }
+    if (!_hasRoute || _routeCumulativeMeters.length != _routePoints.length) {
+      return 0;
     }
 
-    final nextIndex = math.min(nearestIndex + 1, _routePoints.length - 1);
-    return _bearingBetween(_routePoints[nearestIndex], _routePoints[nextIndex]);
+    final targetDistance = _routeDistanceMeters * _animationController.value;
+    final index = _segmentIndexAtDistance(targetDistance);
+    if (index >= _routePoints.length) {
+      return _bearingBetween(
+        _routePoints[_routePoints.length - 2],
+        _routePoints.last,
+      );
+    }
+
+    return _bearingBetween(_routePoints[index - 1], _routePoints[index]);
   }
 
   Future<void> _searchPlaces(String query) async {
@@ -207,11 +205,13 @@ class _MapWidgetState extends State<MapWidget>
 
     final name = SearchService.getVietnameseName(item);
     final address = item['display_name']?.toString() ?? name;
-    _applyPoint(_TripStop(
-      name: _shortName(name),
-      address: address,
-      point: LatLng(lat, lon),
-    ));
+    _applyPoint(
+      _TripStop(
+        name: _shortName(name),
+        address: address,
+        point: LatLng(lat, lon),
+      ),
+    );
   }
 
   Future<void> _searchAndApplyText(_PointEditMode mode, String query) async {
@@ -262,12 +262,14 @@ class _MapWidgetState extends State<MapWidget>
   }
 
   void _addMapStop(LatLng point) {
-    _applyPoint(_TripStop(
-      name: _defaultPointName(),
-      address:
-          '${point.latitude.toStringAsFixed(5)}, ${point.longitude.toStringAsFixed(5)}',
-      point: point,
-    ));
+    _applyPoint(
+      _TripStop(
+        name: _defaultPointName(),
+        address:
+            '${point.latitude.toStringAsFixed(5)}, ${point.longitude.toStringAsFixed(5)}',
+        point: point,
+      ),
+    );
   }
 
   String _defaultPointName() {
@@ -330,6 +332,7 @@ class _MapWidgetState extends State<MapWidget>
           ),
         ]);
       _routePoints = [];
+      _routeCumulativeMeters = [];
       _routeDistanceMeters = 0;
       _routeDurationSeconds = 0;
       _animationController.reset();
@@ -358,14 +361,16 @@ class _MapWidgetState extends State<MapWidget>
     }
 
     final fallbackPoints = _buildStraightRoute(_waypoints);
-    final points =
-        result != null && result.points.length >= 2 ? result.points : fallbackPoints;
+    final points = result != null && result.points.length >= 2
+        ? result.points
+        : fallbackPoints;
     final distance = result?.distanceInMeters ?? _measurePath(points);
     final duration = result?.durationInSeconds ?? _estimateDuration(distance);
 
     if (!mounted) return;
     setState(() {
       _routePoints = points;
+      _routeCumulativeMeters = _buildCumulativeDistances(points);
       _routeDistanceMeters = distance;
       _routeDurationSeconds = duration;
       _animationController.reset();
@@ -426,7 +431,8 @@ class _MapWidgetState extends State<MapWidget>
         distanceAtSave: _routeDistanceMeters,
         transportName: _vehicle.name,
         address: stop.address,
-        description: 'Lưu từ Trình tạo hành trình bởi ${widget.currentUsername}',
+        description:
+            'Lưu từ Trình tạo hành trình bởi ${widget.currentUsername}',
       ),
     );
     setState(() => _statusText = 'Đã lưu điểm đến');
@@ -448,41 +454,53 @@ class _MapWidgetState extends State<MapWidget>
   List<LatLng> _slicePathAtDistance(double targetDistance) {
     if (_routePoints.length < 2) return _routePoints;
     if (targetDistance <= 0) return [_routePoints.first];
-
-    final path = <LatLng>[_routePoints.first];
-    var traveled = 0.0;
-
-    for (var i = 1; i < _routePoints.length; i++) {
-      final previous = _routePoints[i - 1];
-      final current = _routePoints[i];
-      final segment = _distance.as(LengthUnit.Meter, previous, current);
-
-      if (traveled + segment >= targetDistance) {
-        final t = segment == 0 ? 0.0 : (targetDistance - traveled) / segment;
-        path.add(_lerp(previous, current, t.clamp(0, 1)));
-        return path;
-      }
-
-      path.add(current);
-      traveled += segment;
+    if (_routeCumulativeMeters.length != _routePoints.length) {
+      return _routePoints;
     }
 
-    return List<LatLng>.from(_routePoints);
+    final index = _segmentIndexAtDistance(targetDistance);
+    if (index >= _routePoints.length) return List<LatLng>.from(_routePoints);
+
+    final previous = _routePoints[index - 1];
+    final current = _routePoints[index];
+    final before = _routeCumulativeMeters[index - 1];
+    final segment = _routeCumulativeMeters[index] - before;
+    final t = segment == 0 ? 0.0 : (targetDistance - before) / segment;
+
+    return [
+      ..._routePoints.take(index),
+      _lerp(previous, current, t.clamp(0, 1)),
+    ];
   }
 
   LatLng _pointAtDistance(double targetDistance) {
-    var traveled = 0.0;
-    for (var i = 1; i < _routePoints.length; i++) {
-      final previous = _routePoints[i - 1];
-      final current = _routePoints[i];
-      final segment = _distance.as(LengthUnit.Meter, previous, current);
-      if (traveled + segment >= targetDistance) {
-        final t = segment == 0 ? 0.0 : (targetDistance - traveled) / segment;
-        return _lerp(previous, current, t.clamp(0, 1));
-      }
-      traveled += segment;
+    if (_routeCumulativeMeters.length != _routePoints.length) {
+      return _routePoints.last;
     }
-    return _routePoints.last;
+
+    final index = _segmentIndexAtDistance(targetDistance);
+    if (index >= _routePoints.length) return _routePoints.last;
+
+    final previous = _routePoints[index - 1];
+    final current = _routePoints[index];
+    final before = _routeCumulativeMeters[index - 1];
+    final segment = _routeCumulativeMeters[index] - before;
+    final t = segment == 0 ? 0.0 : (targetDistance - before) / segment;
+    return _lerp(previous, current, t.clamp(0, 1));
+  }
+
+  int _segmentIndexAtDistance(double targetDistance) {
+    var low = 1;
+    var high = _routeCumulativeMeters.length - 1;
+    while (low < high) {
+      final mid = low + ((high - low) >> 1);
+      if (_routeCumulativeMeters[mid] < targetDistance) {
+        low = mid + 1;
+      } else {
+        high = mid;
+      }
+    }
+    return low;
   }
 
   LatLng _lerp(LatLng a, LatLng b, double t) {
@@ -500,6 +518,17 @@ class _MapWidgetState extends State<MapWidget>
     return total;
   }
 
+  List<double> _buildCumulativeDistances(List<LatLng> points) {
+    if (points.isEmpty) return const [];
+    final cumulative = <double>[0];
+    var total = 0.0;
+    for (var i = 1; i < points.length; i++) {
+      total += _distance.as(LengthUnit.Meter, points[i - 1], points[i]);
+      cumulative.add(total);
+    }
+    return cumulative;
+  }
+
   double _estimateDuration(double meters) {
     final speedKmh = switch (_vehicle.routeProfile) {
       'foot' => 5.0,
@@ -514,7 +543,8 @@ class _MapWidgetState extends State<MapWidget>
     final lat2 = b.latitudeInRad;
     final dLon = (b.longitude - a.longitude) * math.pi / 180;
     final y = math.sin(dLon) * math.cos(lat2);
-    final x = math.cos(lat1) * math.sin(lat2) -
+    final x =
+        math.cos(lat1) * math.sin(lat2) -
         math.sin(lat1) * math.cos(lat2) * math.cos(dLon);
     return math.atan2(y, x);
   }
@@ -580,21 +610,34 @@ class _MapWidgetState extends State<MapWidget>
                     ),
                   ],
                 ),
-              if (_animatedPath.length >= 2)
-                PolylineLayer(
-                  polylines: [
-                    Polyline(
-                      points: _animatedPath,
-                      color: _theme.routeColor,
-                      strokeWidth: 6,
-                    ),
-                  ],
-                ),
-              MarkerLayer(
-                markers: [
-                  ..._buildStopMarkers(),
-                  if (_vehiclePoint != null) _buildVehicleMarker(_vehiclePoint!),
-                ],
+              AnimatedBuilder(
+                animation: _animationController,
+                builder: (context, child) {
+                  final animatedPath = _animatedPath;
+                  if (animatedPath.length < 2) return const SizedBox.shrink();
+                  return PolylineLayer(
+                    polylines: [
+                      Polyline(
+                        points: animatedPath,
+                        color: _theme.routeColor,
+                        strokeWidth: 6,
+                      ),
+                    ],
+                  );
+                },
+              ),
+              AnimatedBuilder(
+                animation: _animationController,
+                builder: (context, child) {
+                  final vehiclePoint = _vehiclePoint;
+                  return MarkerLayer(
+                    markers: [
+                      ..._buildStopMarkers(),
+                      if (vehiclePoint != null)
+                        _buildVehicleMarker(vehiclePoint),
+                    ],
+                  );
+                },
               ),
             ],
           ),
@@ -631,46 +674,55 @@ class _MapWidgetState extends State<MapWidget>
                     });
                   },
                 ),
-                const Spacer(),
-                _TripPanel(
-                  expanded: _panelExpanded,
-                  stops: _stops,
-                  vehicles: _vehicles,
-                  themes: _themes,
-                  selectedVehicleIndex: _selectedVehicleIndex,
-                  selectedThemeIndex: _selectedThemeIndex,
-                  editMode: _editMode,
-                  isRouting: _isRouting,
-                  isPlaying: _animationController.isAnimating,
-                  progress: _animationController.value,
-                  distance: _formatDistance(_routeDistanceMeters),
-                  duration: _formatDuration(_routeDurationSeconds),
-                  statusText: _statusText,
-                  onToggleExpanded: () {
-                    setState(() => _panelExpanded = !_panelExpanded);
-                  },
-                  onVehicleSelected: (index) {
-                    setState(() => _selectedVehicleIndex = index);
-                    _buildRoute();
-                  },
-                  onThemeSelected: (index) {
-                    setState(() => _selectedThemeIndex = index);
-                  },
-                  onRemoveStop: _removeStop,
-                  startController: _startInputController,
-                  stopController: _stopInputController,
-                  destinationController: _destinationInputController,
-                  onPointSubmitted: _searchAndApplyText,
-                  onPlayPause: _playPause,
-                  onResetAnimation: () {
-                    setState(() {
-                      _animationController.reset();
-                      _statusText = 'Đã tua lại animation';
-                    });
-                  },
-                  onFitRoute: _fitRoute,
-                  onClearTrip: _clearTrip,
-                  onSaveDestination: _saveDestination,
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: AnimatedBuilder(
+                      animation: _animationController,
+                      builder: (context, child) {
+                        return _TripPanel(
+                          expanded: _panelExpanded,
+                          stops: _stops,
+                          vehicles: _vehicles,
+                          themes: _themes,
+                          selectedVehicleIndex: _selectedVehicleIndex,
+                          selectedThemeIndex: _selectedThemeIndex,
+                          editMode: _editMode,
+                          isRouting: _isRouting,
+                          isPlaying: _animationController.isAnimating,
+                          progress: _animationController.value,
+                          distance: _formatDistance(_routeDistanceMeters),
+                          duration: _formatDuration(_routeDurationSeconds),
+                          statusText: _statusText,
+                          onToggleExpanded: () {
+                            setState(() => _panelExpanded = !_panelExpanded);
+                          },
+                          onVehicleSelected: (index) {
+                            setState(() => _selectedVehicleIndex = index);
+                            _buildRoute();
+                          },
+                          onThemeSelected: (index) {
+                            setState(() => _selectedThemeIndex = index);
+                          },
+                          onRemoveStop: _removeStop,
+                          startController: _startInputController,
+                          stopController: _stopInputController,
+                          destinationController: _destinationInputController,
+                          onPointSubmitted: _searchAndApplyText,
+                          onPlayPause: _playPause,
+                          onResetAnimation: () {
+                            setState(() {
+                              _animationController.reset();
+                              _statusText = 'Đã tua lại animation';
+                            });
+                          },
+                          onFitRoute: _fitRoute,
+                          onClearTrip: _clearTrip,
+                          onSaveDestination: _saveDestination,
+                        );
+                      },
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -688,13 +740,13 @@ class _MapWidgetState extends State<MapWidget>
       final color = isFirst
           ? const Color(0xFF16A34A)
           : isLast
-              ? const Color(0xFFDC2626)
-              : _theme.accentColor;
+          ? const Color(0xFFDC2626)
+          : _theme.accentColor;
       final label = isFirst
           ? 'A'
           : isLast
-              ? 'B'
-              : '$index';
+          ? 'B'
+          : '$index';
 
       return Marker(
         point: stop.point,
@@ -862,10 +914,7 @@ class _SuggestionList extends StatelessWidget {
   final List<Map<String, dynamic>> suggestions;
   final ValueChanged<Map<String, dynamic>> onSelect;
 
-  const _SuggestionList({
-    required this.suggestions,
-    required this.onSelect,
-  });
+  const _SuggestionList({required this.suggestions, required this.onSelect});
 
   @override
   Widget build(BuildContext context) {
@@ -895,11 +944,7 @@ class _SuggestionList extends StatelessWidget {
           return ListTile(
             dense: true,
             leading: const Icon(Icons.add_location_alt_outlined),
-            title: Text(
-              name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
+            title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
             subtitle: Text(
               address,
               maxLines: 1,
@@ -917,10 +962,7 @@ class _ModeSelector extends StatelessWidget {
   final _PointEditMode selectedMode;
   final ValueChanged<_PointEditMode> onChanged;
 
-  const _ModeSelector({
-    required this.selectedMode,
-    required this.onChanged,
-  });
+  const _ModeSelector({required this.selectedMode, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
@@ -1091,7 +1133,7 @@ class _TripPanel extends StatelessWidget {
       margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
       constraints: BoxConstraints(
-        maxHeight: expanded ? MediaQuery.of(context).size.height * 0.68 : 132,
+        maxHeight: expanded ? MediaQuery.of(context).size.height * 0.68 : 190,
       ),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -1104,100 +1146,102 @@ class _TripPanel extends StatelessWidget {
           ),
         ],
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.route, color: Color(0xFF2563EB)),
-              const SizedBox(width: 8),
-              const Expanded(
-                child: Text(
-                  'Tạo hành trình',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+      child: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.route, color: Color(0xFF2563EB)),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Tạo hành trình',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                  ),
                 ),
-              ),
-              if (isRouting)
-                const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+                if (isRouting)
+                  const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                IconButton(
+                  tooltip: expanded ? 'Thu gọn' : 'Mở rộng',
+                  onPressed: onToggleExpanded,
+                  icon: Icon(expanded ? Icons.expand_more : Icons.expand_less),
                 ),
-              IconButton(
-                tooltip: expanded ? 'Thu gọn' : 'Mở rộng',
-                onPressed: onToggleExpanded,
-                icon: Icon(expanded ? Icons.expand_more : Icons.expand_less),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                _MetricChip(icon: Icons.straighten, label: distance),
+                const SizedBox(width: 8),
+                _MetricChip(icon: Icons.schedule, label: duration),
+                const SizedBox(width: 8),
+                _MetricChip(
+                  icon: vehicles[selectedVehicleIndex].icon,
+                  label: vehicles[selectedVehicleIndex].name,
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            LinearProgressIndicator(
+              value: progress.clamp(0, 1),
+              minHeight: 6,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                switch (editMode) {
+                  _PointEditMode.start =>
+                    'Tìm kiếm hoặc chạm bản đồ để đổi điểm đi.',
+                  _PointEditMode.stop =>
+                    'Tìm kiếm hoặc chạm bản đồ để thêm điểm dừng.',
+                  _PointEditMode.destination =>
+                    'Tìm kiếm hoặc chạm bản đồ để đổi điểm đến.',
+                },
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
               ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              _MetricChip(icon: Icons.straighten, label: distance),
-              const SizedBox(width: 8),
-              _MetricChip(icon: Icons.schedule, label: duration),
-              const SizedBox(width: 8),
-              _MetricChip(
-                icon: vehicles[selectedVehicleIndex].icon,
-                label: vehicles[selectedVehicleIndex].name,
+            ),
+            if (expanded) ...[
+              const SizedBox(height: 10),
+              _RouteInputForm(
+                startController: startController,
+                stopController: stopController,
+                destinationController: destinationController,
+                onPointSubmitted: onPointSubmitted,
               ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          LinearProgressIndicator(
-            value: progress.clamp(0, 1),
-            minHeight: 6,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              switch (editMode) {
-                _PointEditMode.start =>
-                  'Tìm kiếm hoặc chạm bản đồ để đổi điểm đi.',
-                _PointEditMode.stop =>
-                  'Tìm kiếm hoặc chạm bản đồ để thêm điểm dừng.',
-                _PointEditMode.destination =>
-                  'Tìm kiếm hoặc chạm bản đồ để đổi điểm đến.',
-              },
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
-            ),
-          ),
-          if (expanded) ...[
-            const SizedBox(height: 10),
-            _RouteInputForm(
-              startController: startController,
-              stopController: stopController,
-              destinationController: destinationController,
-              onPointSubmitted: onPointSubmitted,
-            ),
-            const SizedBox(height: 10),
-            _IconScroller(
-              label: 'Phương tiện',
-              itemCount: vehicles.length,
-              selectedIndex: selectedVehicleIndex,
-              iconAt: (index) => vehicles[index].icon,
-              textAt: (index) => vehicles[index].name,
-              onSelected: onVehicleSelected,
-            ),
-            const SizedBox(height: 10),
-            _ThemeScroller(
-              themes: themes,
-              selectedIndex: selectedThemeIndex,
-              onSelected: onThemeSelected,
-            ),
-            const SizedBox(height: 10),
-            Flexible(
-              child: ListView.builder(
+              const SizedBox(height: 10),
+              _IconScroller(
+                label: 'Phương tiện',
+                itemCount: vehicles.length,
+                selectedIndex: selectedVehicleIndex,
+                iconAt: (index) => vehicles[index].icon,
+                textAt: (index) => vehicles[index].name,
+                onSelected: onVehicleSelected,
+              ),
+              const SizedBox(height: 10),
+              _ThemeScroller(
+                themes: themes,
+                selectedIndex: selectedThemeIndex,
+                onSelected: onThemeSelected,
+              ),
+              const SizedBox(height: 10),
+              ListView.builder(
                 padding: EdgeInsets.zero,
+                physics: const NeverScrollableScrollPhysics(),
                 shrinkWrap: true,
                 itemCount: stops.length,
                 itemBuilder: (context, index) {
                   final stop = stops[index];
-              return _StopTile(
+                  return _StopTile(
                     index: index,
                     totalCount: stops.length,
                     stop: stop,
@@ -1206,62 +1250,67 @@ class _TripPanel extends StatelessWidget {
                   );
                 },
               ),
-            ),
-          ],
-          if (statusText != null) ...[
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                statusText!,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Color(0xFF475569), fontSize: 12),
-              ),
-            ),
-          ],
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: isRouting ? null : onPlayPause,
-                  icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
-                  label: Text(isPlaying ? 'Tạm dừng' : 'Phát'),
-                ),
-              ),
-              const SizedBox(width: 8),
-              IconButton.filledTonal(
-                tooltip: 'Tua lại animation',
-                onPressed: onResetAnimation,
-                icon: const Icon(Icons.replay),
-              ),
-              const SizedBox(width: 8),
-              IconButton.filledTonal(
-                tooltip: 'Canh giữa tuyến đường',
-                onPressed: onFitRoute,
-                icon: const Icon(Icons.center_focus_strong),
-              ),
-              const SizedBox(width: 8),
-              PopupMenuButton<String>(
-                tooltip: 'Tùy chọn',
-                onSelected: (value) {
-                  if (value == 'save') onSaveDestination();
-                  if (value == 'clear') onClearTrip();
-                },
-                itemBuilder: (context) => const [
-                  PopupMenuItem(value: 'save', child: Text('Lưu điểm đến')),
-                  PopupMenuItem(value: 'clear', child: Text('Đặt lại hành trình')),
-                ],
-                child: const SizedBox(
-                  width: 42,
-                  height: 42,
-                  child: Icon(Icons.more_vert),
+            ],
+            if (statusText != null) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  statusText!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF475569),
+                    fontSize: 12,
+                  ),
                 ),
               ),
             ],
-          ),
-        ],
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                IconButton.filled(
+                  tooltip: isPlaying ? 'Tạm dừng' : 'Phát',
+                  onPressed: isRouting ? null : onPlayPause,
+                  icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+                ),
+                const Spacer(),
+                const SizedBox(width: 8),
+                IconButton.filledTonal(
+                  tooltip: 'Tua lại animation',
+                  onPressed: onResetAnimation,
+                  icon: const Icon(Icons.replay),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filledTonal(
+                  tooltip: 'Canh giữa tuyến đường',
+                  onPressed: onFitRoute,
+                  icon: const Icon(Icons.center_focus_strong),
+                ),
+                const SizedBox(width: 8),
+                PopupMenuButton<String>(
+                  tooltip: 'Tùy chọn',
+                  onSelected: (value) {
+                    if (value == 'save') onSaveDestination();
+                    if (value == 'clear') onClearTrip();
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(value: 'save', child: Text('Lưu điểm đến')),
+                    PopupMenuItem(
+                      value: 'clear',
+                      child: Text('Đặt lại hành trình'),
+                    ),
+                  ],
+                  child: const SizedBox(
+                    width: 42,
+                    height: 42,
+                    child: Icon(Icons.more_vert),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1290,8 +1339,7 @@ class _RouteInputForm extends StatelessWidget {
           label: 'Điểm xuất phát',
           hint: 'Nhập nơi bắt đầu',
           color: const Color(0xFF16A34A),
-          onSubmitted: (value) =>
-              onPointSubmitted(_PointEditMode.start, value),
+          onSubmitted: (value) => onPointSubmitted(_PointEditMode.start, value),
         ),
         const SizedBox(height: 8),
         _PointInputField(
@@ -1372,10 +1420,7 @@ class _MetricChip extends StatelessWidget {
   final IconData icon;
   final String label;
 
-  const _MetricChip({
-    required this.icon,
-    required this.label,
-  });
+  const _MetricChip({required this.icon, required this.label});
 
   @override
   Widget build(BuildContext context) {
@@ -1577,8 +1622,8 @@ class _StopTile extends StatelessWidget {
     final label = index == 0
         ? 'A'
         : index == totalCount - 1
-            ? 'B'
-            : '$index';
+        ? 'B'
+        : '$index';
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(10),
@@ -1594,8 +1639,8 @@ class _StopTile extends StatelessWidget {
             backgroundColor: index == 0
                 ? const Color(0xFF16A34A)
                 : index == totalCount - 1
-                    ? const Color(0xFFDC2626)
-                    : const Color(0xFF2563EB),
+                ? const Color(0xFFDC2626)
+                : const Color(0xFF2563EB),
             child: Text(
               label,
               style: const TextStyle(
