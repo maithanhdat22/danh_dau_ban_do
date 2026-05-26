@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
@@ -18,8 +19,8 @@ class RoutingService {
   static String _profileFromTransport(String? transportName) {
     final name = (transportName ?? '').toLowerCase();
 
-    if (name.contains('đi bộ')) return 'foot';
-    if (name.contains('xe đạp')) return 'bike';
+    if (name.contains('foot') || name.contains('walk')) return 'foot';
+    if (name.contains('bike') || name.contains('cycle')) return 'bike';
 
     return 'driving';
   }
@@ -32,19 +33,17 @@ class RoutingService {
 
     final profile = _profileFromTransport(transportName);
     final coordinates = waypoints
-        .map((e) => '${e.longitude},${e.latitude}')
+        .map((point) => '${point.longitude},${point.latitude}')
         .join(';');
 
     final uri = Uri.parse(
       'https://router.project-osrm.org/route/v1/$profile/$coordinates'
-          '?overview=full&geometries=geojson&steps=false',
+      '?overview=full&geometries=geojson&steps=false',
     );
 
     final response = await http.get(
       uri,
-      headers: {
-        'Accept': 'application/json',
-      },
+      headers: const {'Accept': 'application/json'},
     );
 
     if (response.statusCode != 200) return null;

@@ -25,6 +25,32 @@ class PlaceMarker {
     this.address,
   });
 
+  PlaceMarker copyWith({
+    String? id,
+    String? title,
+    double? latitude,
+    double? longitude,
+    DateTime? createdAt,
+    double? distanceAtSave,
+    String? transportName,
+    String? description,
+    String? imageUrl,
+    String? address,
+  }) {
+    return PlaceMarker(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
+      createdAt: createdAt ?? this.createdAt,
+      distanceAtSave: distanceAtSave ?? this.distanceAtSave,
+      transportName: transportName ?? this.transportName,
+      description: description ?? this.description,
+      imageUrl: imageUrl ?? this.imageUrl,
+      address: address ?? this.address,
+    );
+  }
+
   Map<String, dynamic> toMap() {
     return {
       'id': id,

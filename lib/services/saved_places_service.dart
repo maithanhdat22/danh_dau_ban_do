@@ -1,3 +1,7 @@
+import 'dart:io';
+
+import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/place_marker.dart';
 
@@ -38,5 +42,27 @@ class SavedPlacesService {
       places.removeAt(index);
       await savePlaces(places);
     }
+  }
+
+  static Future<void> updatePlaceImageAt(int index, String imagePath) async {
+    final places = await getPlaces();
+    if (index < 0 || index >= places.length) return;
+
+    final source = File(imagePath);
+    if (!await source.exists()) return;
+
+    final directory = await getApplicationDocumentsDirectory();
+    final imagesDirectory = Directory(path.join(directory.path, 'saved_images'));
+    if (!await imagesDirectory.exists()) {
+      await imagesDirectory.create(recursive: true);
+    }
+
+    final extension = path.extension(source.path);
+    final fileName =
+        '${places[index].id}_${DateTime.now().millisecondsSinceEpoch}$extension';
+    final savedImage = await source.copy(path.join(imagesDirectory.path, fileName));
+
+    places[index] = places[index].copyWith(imageUrl: savedImage.path);
+    await savePlaces(places);
   }
 }

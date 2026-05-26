@@ -42,6 +42,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       SavedPlacesScreen(
         places: _savedPlaces,
         onDelete: _removePlace,
+        onImageSelected: _updatePlaceImage,
       ),
       ProfileScreen(
         user: widget.user,
@@ -59,6 +60,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _pages[1] = SavedPlacesScreen(
         places: places,
         onDelete: _removePlace,
+        onImageSelected: _updatePlaceImage,
       );
     });
   }
@@ -80,6 +82,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Đã xóa địa điểm đã lưu')),
+    );
+  }
+
+  Future<void> _updatePlaceImage(int index, String imagePath) async {
+    await SavedPlacesService.updatePlaceImageAt(index, imagePath);
+    await _loadSavedPlaces();
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Đã cập nhật hình ảnh cho địa điểm')),
     );
   }
 
