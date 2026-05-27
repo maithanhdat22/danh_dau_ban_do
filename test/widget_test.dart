@@ -6,6 +6,6 @@ void main() {
   testWidgets('app boots to login screen', (WidgetTester tester) async {
     await tester.pumpWidget(const MyApp());
 
-    expect(find.text('Travel Map Login'), findsOneWidget);
+    expect(find.text('Đăng nhập Travel Map GPS'), findsOneWidget);
   });
 }

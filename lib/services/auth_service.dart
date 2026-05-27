@@ -38,9 +38,9 @@ class AuthService {
       _initializationErrorMessage = null;
     } on FirebaseException catch (error) {
       _initializationErrorMessage =
-          error.message ?? 'Khoi tao Firebase that bai.';
+          error.message ?? 'Khởi tạo Firebase thất bại.';
     } catch (_) {
-      _initializationErrorMessage = 'Khong the khoi tao Firebase.';
+      _initializationErrorMessage = 'Không thể khởi tạo Firebase.';
     }
   }
 
@@ -66,7 +66,7 @@ class AuthService {
       final user = credential.user;
       if (user == null) {
         throw const AuthException(
-          'Dang nhap that bai. Khong nhan duoc thong tin nguoi dung.',
+          'Đăng nhập thất bại. Không nhận được thông tin người dùng.',
         );
       }
 
@@ -93,7 +93,7 @@ class AuthService {
       final user = credential.user;
       if (user == null) {
         throw const AuthException(
-          'Dang ky that bai. Khong nhan duoc thong tin nguoi dung.',
+          'Đăng ký thất bại. Không nhận được thông tin người dùng.',
         );
       }
 
@@ -103,7 +103,7 @@ class AuthService {
       final refreshedUser = FirebaseAuth.instance.currentUser;
       if (refreshedUser == null) {
         throw const AuthException(
-          'Dang ky xong nhung khong doc lai duoc ho so nguoi dung.',
+          'Đăng ký xong nhưng không đọc lại được hồ sơ người dùng.',
         );
       }
 
@@ -129,7 +129,7 @@ class AuthService {
     }
 
     if (!isReady) {
-      throw const AuthException('Firebase chua duoc khoi tao.');
+      throw const AuthException('Firebase chưa được khởi tạo.');
     }
   }
 
@@ -154,21 +154,21 @@ class AuthService {
   static String _mapFirebaseAuthError(FirebaseAuthException error) {
     switch (error.code) {
       case 'invalid-email':
-        return 'Email khong hop le.';
+        return 'Email không hợp lệ.';
       case 'invalid-credential':
       case 'wrong-password':
       case 'user-not-found':
-        return 'Sai email hoac mat khau.';
+        return 'Sai email hoặc mật khẩu.';
       case 'email-already-in-use':
-        return 'Email nay da duoc su dung.';
+        return 'Email này đã được sử dụng.';
       case 'weak-password':
-        return 'Mat khau qua yeu. Hay dung it nhat 6 ky tu.';
+        return 'Mật khẩu quá yếu. Hãy dùng ít nhất 6 ký tự.';
       case 'too-many-requests':
-        return 'Ban thu dang nhap qua nhieu lan. Hay doi mot luc roi thu lai.';
+        return 'Bạn thử đăng nhập quá nhiều lần. Hãy đợi một lúc rồi thử lại.';
       case 'network-request-failed':
-        return 'Ket noi mang that bai.';
+        return 'Kết nối mạng thất bại.';
       default:
-        return error.message ?? 'Xac thuc that bai.';
+        return error.message ?? 'Xác thực thất bại.';
     }
   }
 }

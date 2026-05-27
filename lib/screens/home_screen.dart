@@ -7,13 +7,8 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Travel Map'),
-      ),
-      body: MapWidget(
-        currentUsername: '',
-        onPlaceSaved: (value) {},
-      ),
+      appBar: AppBar(title: const Text('Travel Map GPS')),
+      body: MapWidget(currentUsername: '', onPlaceSaved: (value) {}),
     );
   }
 }

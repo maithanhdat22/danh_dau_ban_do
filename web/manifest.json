@@ -1,11 +1,11 @@
 {
-    "name": "ban_do",
-    "short_name": "ban_do",
+    "name": "Travel Map GPS",
+    "short_name": "Travel Map GPS",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Travel Map GPS",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

@@ -19,8 +19,18 @@ class RoutingService {
   static String _profileFromTransport(String? transportName) {
     final name = (transportName ?? '').toLowerCase();
 
-    if (name.contains('foot') || name.contains('walk')) return 'foot';
-    if (name.contains('bike') || name.contains('cycle')) return 'bike';
+    if (name.contains('foot') ||
+        name.contains('walk') ||
+        name.contains('đi bộ') ||
+        name.contains('di bo')) {
+      return 'foot';
+    }
+    if (name.contains('bike') ||
+        name.contains('cycle') ||
+        name.contains('xe đạp') ||
+        name.contains('xe dap')) {
+      return 'bike';
+    }
 
     return 'driving';
   }
@@ -60,10 +70,7 @@ class RoutingService {
 
     final points = coords.map((item) {
       final pair = item as List<dynamic>;
-      return LatLng(
-        (pair[1] as num).toDouble(),
-        (pair[0] as num).toDouble(),
-      );
+      return LatLng((pair[1] as num).toDouble(), (pair[0] as num).toDouble());
     }).toList();
 
     return RouteResult(

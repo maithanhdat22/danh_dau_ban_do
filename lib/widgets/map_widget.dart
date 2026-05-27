@@ -57,12 +57,43 @@ class _MapWidgetState extends State<MapWidget>
   ];
 
   final List<_VehicleOption> _vehicles = const [
-    _VehicleOption('Đi bộ', Icons.directions_walk, 'foot'),
-    _VehicleOption('Xe đạp', Icons.directions_bike, 'bike'),
-    _VehicleOption('Xe máy', Icons.two_wheeler, 'driving'),
-    _VehicleOption('Ô tô', Icons.directions_car, 'driving'),
-    _VehicleOption('Tàu hỏa', Icons.train, 'driving'),
-    _VehicleOption('Máy bay', Icons.flight, 'driving'),
+    _VehicleOption(
+      name: 'Đi bộ',
+      icon: Icons.directions_walk,
+      routeProfile: 'foot',
+      speedKmh: 5,
+    ),
+    _VehicleOption(
+      name: 'Xe đạp',
+      icon: Icons.directions_bike,
+      routeProfile: 'bike',
+      speedKmh: 16,
+    ),
+    _VehicleOption(
+      name: 'Xe máy',
+      icon: Icons.two_wheeler,
+      routeProfile: 'driving',
+      speedKmh: 38,
+    ),
+    _VehicleOption(
+      name: 'Ô tô',
+      icon: Icons.directions_car,
+      routeProfile: 'driving',
+      speedKmh: 55,
+    ),
+    _VehicleOption(
+      name: 'Tàu hỏa',
+      icon: Icons.train,
+      routeProfile: 'driving',
+      speedKmh: 80,
+    ),
+    _VehicleOption(
+      name: 'Máy bay',
+      icon: Icons.flight,
+      routeProfile: 'air',
+      speedKmh: 650,
+      usesNetworkRoute: false,
+    ),
   ];
 
   final List<_MapThemeOption> _themes = const [
@@ -93,6 +124,7 @@ class _MapWidgetState extends State<MapWidget>
   bool _isRouting = false;
   bool _panelExpanded = true;
   String? _statusText;
+  int _routeRequestId = 0;
 
   List<Map<String, dynamic>> _suggestions = [];
   List<LatLng> _routePoints = [];
@@ -345,19 +377,25 @@ class _MapWidgetState extends State<MapWidget>
 
   Future<void> _buildRoute({bool fitRoute = false}) async {
     if (_stops.length < 2) return;
+
+    final requestId = ++_routeRequestId;
+    final vehicle = _vehicle;
+
     setState(() {
       _isRouting = true;
-      _statusText = 'Đang dựng tuyến đường...';
+      _statusText = 'Đang dựng tuyến đường cho ${vehicle.name}...';
     });
 
     RouteResult? result;
-    try {
-      result = await RoutingService.getRoute(
-        waypoints: _waypoints,
-        transportName: _vehicle.routeProfile,
-      ).timeout(const Duration(seconds: 12));
-    } catch (_) {
-      result = null;
+    if (vehicle.usesNetworkRoute) {
+      try {
+        result = await RoutingService.getRoute(
+          waypoints: _waypoints,
+          transportName: vehicle.routeProfile,
+        ).timeout(const Duration(seconds: 12));
+      } catch (_) {
+        result = null;
+      }
     }
 
     final fallbackPoints = _buildStraightRoute(_waypoints);
@@ -365,9 +403,9 @@ class _MapWidgetState extends State<MapWidget>
         ? result.points
         : fallbackPoints;
     final distance = result?.distanceInMeters ?? _measurePath(points);
-    final duration = result?.durationInSeconds ?? _estimateDuration(distance);
+    final duration = _estimateDuration(distance, vehicle);
 
-    if (!mounted) return;
+    if (!mounted || requestId != _routeRequestId) return;
     setState(() {
       _routePoints = points;
       _routeCumulativeMeters = _buildCumulativeDistances(points);
@@ -375,9 +413,11 @@ class _MapWidgetState extends State<MapWidget>
       _routeDurationSeconds = duration;
       _animationController.reset();
       _isRouting = false;
-      _statusText = result == null
+      _statusText = !vehicle.usesNetworkRoute
+          ? 'Tuyến ${vehicle.name.toLowerCase()} đang dùng đường thẳng xem trước.'
+          : result == null
           ? 'Đang dùng tuyến xem trước vì chưa lấy được tuyến từ mạng.'
-          : 'Tuyến đường đã sẵn sàng';
+          : 'Tuyến đường bằng ${vehicle.name} đã sẵn sàng';
     });
 
     if (fitRoute) _fitRoute();
@@ -529,13 +569,8 @@ class _MapWidgetState extends State<MapWidget>
     return cumulative;
   }
 
-  double _estimateDuration(double meters) {
-    final speedKmh = switch (_vehicle.routeProfile) {
-      'foot' => 5.0,
-      'bike' => 16.0,
-      _ => 55.0,
-    };
-    return meters / (speedKmh * 1000 / 3600);
+  double _estimateDuration(double meters, _VehicleOption vehicle) {
+    return meters / (vehicle.speedKmh * 1000 / 3600);
   }
 
   double _bearingBetween(LatLng a, LatLng b) {
@@ -698,7 +733,19 @@ class _MapWidgetState extends State<MapWidget>
                             setState(() => _panelExpanded = !_panelExpanded);
                           },
                           onVehicleSelected: (index) {
-                            setState(() => _selectedVehicleIndex = index);
+                            if (index == _selectedVehicleIndex) return;
+                            final vehicle = _vehicles[index];
+                            setState(() {
+                              _selectedVehicleIndex = index;
+                              if (_routeDistanceMeters > 0) {
+                                _routeDurationSeconds = _estimateDuration(
+                                  _routeDistanceMeters,
+                                  vehicle,
+                                );
+                              }
+                              _statusText =
+                                  'Đang cập nhật lịch trình cho ${vehicle.name}...';
+                            });
                             _buildRoute();
                           },
                           onThemeSelected: (index) {
@@ -831,8 +878,16 @@ class _VehicleOption {
   final String name;
   final IconData icon;
   final String routeProfile;
+  final double speedKmh;
+  final bool usesNetworkRoute;
 
-  const _VehicleOption(this.name, this.icon, this.routeProfile);
+  const _VehicleOption({
+    required this.name,
+    required this.icon,
+    required this.routeProfile,
+    required this.speedKmh,
+    this.usesNetworkRoute = true,
+  });
 }
 
 class _MapThemeOption {

@@ -10,7 +10,7 @@ class DefaultFirebaseOptions {
         return ios;
       default:
         throw UnsupportedError(
-          'Nen tang nay chua duoc cau hinh Firebase. Hay dung flutterfire configure.',
+          'Nền tảng này chưa được cấu hình Firebase. Hãy dùng flutterfire configure.',
         );
     }
   }
@@ -46,18 +46,18 @@ class DefaultFirebaseOptions {
 
   static String? get configurationIssue {
     if (!isCurrentPlatformSupported) {
-      return 'Firebase hien moi duoc cau hinh cho Android. '
-          'Neu ban muon chay tren $currentPlatformName, hay them cau hinh bang flutterfire configure.';
+      return 'Firebase hiện mới được cấu hình cho Android. '
+          'Nếu bạn muốn chạy trên $currentPlatformName, hãy thêm cấu hình bằng flutterfire configure.';
     }
 
     if (isConfigured) return null;
 
     if (defaultTargetPlatform == TargetPlatform.iOS) {
-      return 'Firebase cho iOS chua du thong tin. '
-          'Hay them GoogleService-Info.plist va cap nhat gia tri that trong lib/firebase_options.dart.';
+      return 'Firebase cho iOS chưa đủ thông tin. '
+          'Hãy thêm GoogleService-Info.plist và cập nhật giá trị thật trong lib/firebase_options.dart.';
     }
 
-    return 'Firebase chua duoc cau hinh day du cho $currentPlatformName.';
+    return 'Firebase chưa được cấu hình đầy đủ cho $currentPlatformName.';
   }
 
   static FirebaseOptions? get _currentPlatformOrNull {
@@ -86,7 +86,8 @@ class DefaultFirebaseOptions {
     messagingSenderId: '346863270119',
     projectId: 'bandodichuyen',
     storageBucket: 'bandodichuyen.firebasestorage.app',
-    databaseURL: 'https://bandodichuyen-default-rtdb.asia-southeast1.firebasedatabase.app',
+    databaseURL:
+        'https://bandodichuyen-default-rtdb.asia-southeast1.firebasedatabase.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
