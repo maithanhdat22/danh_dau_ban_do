@@ -25,18 +25,30 @@ class AuthService {
       _initializationErrorMessage ?? DefaultFirebaseOptions.configurationIssue;
 
   static Future<void> initializeFirebase() async {
-    _initializationErrorMessage = DefaultFirebaseOptions.configurationIssue;
-
-    if (_initializationErrorMessage != null || Firebase.apps.isNotEmpty) {
+    if (Firebase.apps.isNotEmpty) {
+      _initializationErrorMessage = null;
       return;
     }
 
+    _initializationErrorMessage = DefaultFirebaseOptions.configurationIssue;
+    if (_initializationErrorMessage != null) return;
+
     try {
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
+      final options = DefaultFirebaseOptions.currentPlatformOptions;
+      if (options != null) {
+        await Firebase.initializeApp(options: options);
+      } else {
+        await Firebase.initializeApp();
+      }
+
       _initializationErrorMessage = null;
     } on FirebaseException catch (error) {
+      if (DefaultFirebaseOptions.usesNativeConfiguration) {
+        _initializationErrorMessage =
+            'Không thể khởi tạo Firebase iOS. Hãy đặt GoogleService-Info.plist thật vào ios/Runner rồi build lại.';
+        return;
+      }
+
       _initializationErrorMessage =
           error.message ?? 'Khởi tạo Firebase thất bại.';
     } catch (_) {

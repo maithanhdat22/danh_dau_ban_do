@@ -3,11 +3,14 @@ import 'package:flutter/foundation.dart';
 
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
+    final options = currentPlatformOptions;
+    if (options != null) return options;
+
     switch (defaultTargetPlatform) {
-      case TargetPlatform.android:
-        return android;
       case TargetPlatform.iOS:
-        return ios;
+        throw UnsupportedError(
+          'Firebase iOS is configured from GoogleService-Info.plist.',
+        );
       default:
         throw UnsupportedError(
           'Nền tảng này chưa được cấu hình Firebase. Hãy dùng flutterfire configure.',
@@ -17,15 +20,17 @@ class DefaultFirebaseOptions {
 
   static bool get isCurrentPlatformSupported => _currentPlatformOrNull != null;
 
-  static bool get isConfigured {
+  static FirebaseOptions? get currentPlatformOptions {
     final options = _currentPlatformOrNull;
-    if (options == null) return false;
-
-    return !_containsPlaceholder(options.apiKey) &&
-        !_containsPlaceholder(options.appId) &&
-        !_containsPlaceholder(options.messagingSenderId) &&
-        !_containsPlaceholder(options.projectId);
+    return _hasValidOptions(options) ? options : null;
   }
+
+  static bool get isConfigured =>
+      currentPlatformOptions != null || usesNativeConfiguration;
+
+  static bool get usesNativeConfiguration =>
+      defaultTargetPlatform == TargetPlatform.iOS &&
+      currentPlatformOptions == null;
 
   static String get currentPlatformName {
     switch (defaultTargetPlatform) {
@@ -52,7 +57,7 @@ class DefaultFirebaseOptions {
 
     if (isConfigured) return null;
 
-    if (defaultTargetPlatform == TargetPlatform.iOS) {
+    if (defaultTargetPlatform == TargetPlatform.iOS && !usesNativeConfiguration) {
       return 'Firebase cho iOS chưa đủ thông tin. '
           'Hãy thêm GoogleService-Info.plist và cập nhật giá trị thật trong lib/firebase_options.dart.';
     }
@@ -80,6 +85,15 @@ class DefaultFirebaseOptions {
         value == 'YOUR_IOS_APP_ID';
   }
 
+  static bool _hasValidOptions(FirebaseOptions? options) {
+    if (options == null) return false;
+
+    return !_containsPlaceholder(options.apiKey) &&
+        !_containsPlaceholder(options.appId) &&
+        !_containsPlaceholder(options.messagingSenderId) &&
+        !_containsPlaceholder(options.projectId);
+  }
+
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyCtnQQwxFvHwwtGlTHCkfvCciSklWF3G-Y',
     appId: '1:346863270119:android:db97a3053fd312ace5ca42',
@@ -95,7 +109,7 @@ class DefaultFirebaseOptions {
     appId: 'YOUR_IOS_APP_ID',
     messagingSenderId: '1234567890',
     projectId: 'your-project-id',
-    iosBundleId: 'com.example.ban_do',
+    iosBundleId: 'com.apploz.danhdaubando',
     storageBucket: 'your-project-id.firebasestorage.app',
   );
 }
